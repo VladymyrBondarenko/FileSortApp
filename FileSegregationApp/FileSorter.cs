@@ -1,4 +1,6 @@
-﻿using System;
+﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Running;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,44 +10,69 @@ namespace FileSortApp
 {
     internal sealed class FileSorter
     {
-        public void SortFile(string fileName, int partLinesCount)
+        public async Task SortFile(string fileName, int partLinesCount)
         {
-            // cut file into separate files
-            var files = separateFile(fileName, partLinesCount);
-
-            // sort separated files
-            sortFiles(files);
+            // cut file into separate files and sort them
+            var files = await separateAndSortFile(fileName, partLinesCount);
 
             // write sorted files to result file
-            sortResult(files);
+            await sortResult(files);
         }
 
-        private void sortFiles(List<string> files)
+        private async Task<List<string>> separateAndSortFile(string fileName, int partLinesCount)
         {
-            foreach (var file in files)
+            var fileLines = new FileLine[partLinesCount];
+            var partNumber = 0;
+            var files = new List<string>();
+            int i = 0;
+
+            using var reader = new StreamReader(fileName);
+            for (string line = await reader.ReadLineAsync(); ; line = await reader.ReadLineAsync())
             {
-                var sortedLines = File.ReadAllLines(file)
-                    .Select(x => new FileLine(x))
-                    .OrderBy(x => x);
-                File.WriteAllLines(file, sortedLines.Select(x => x.Line));
+                fileLines[i] = new FileLine(line);
+                i++;
+                if(i == partLinesCount)
+                {
+                    partNumber++;
+                    var partFileName = partNumber + ".txt";
+                    files.Add(partFileName);
+
+                    Array.Sort(fileLines);
+                    await File.WriteAllLinesAsync(partFileName, fileLines.Select(x => x.Line));
+                    i = 0;
+                }
+
+                if (reader.EndOfStream)
+                    break;
             }
+
+            if(i != 0)
+            {
+                Array.Resize(ref fileLines, i + 1);
+                partNumber++;
+                var partFileName = partNumber + ".txt";
+                files.Add(partFileName);
+                await File.WriteAllLinesAsync(partFileName, fileLines.Select(x => x.Line));
+            }
+
+            return files;
         }
 
-        private void sortResult(List<string> files)
+        private async Task sortResult(List<string> files)
         {
-            var readers = files.Select(x => new StreamReader(x));
+            var readers = files.Select(x => new StreamReader(x)).ToArray();
             try
             {
                 var lines = readers.Select(x => new FileLineState
                 {
                     FileLine = new FileLine(x.ReadLine()),
                     StreamReader = x
-                }).ToList();
+                }).OrderBy(x => x.FileLine).ToList();
 
                 using var streamWriter = new StreamWriter("result.txt");
                 while (lines.Count > 0)
                 {
-                    var currentLine = lines.OrderBy(x => x.FileLine).First();
+                    var currentLine = lines[0];
                     streamWriter.WriteLine(currentLine.FileLine.Line);
 
                     if (currentLine.StreamReader.EndOfStream)
@@ -54,7 +81,8 @@ namespace FileSortApp
                     }
                     else
                     {
-                        currentLine.FileLine = new FileLine(currentLine.StreamReader.ReadLine());
+                        currentLine.FileLine = new FileLine(await currentLine.StreamReader.ReadLineAsync());
+                        Reorder(lines);
                     }
                 }
             }
@@ -67,31 +95,21 @@ namespace FileSortApp
             }
         }
 
-        private List<string> separateFile(string fileName, int partLinesCount)
+        private void Reorder(List<FileLineState> lines)
         {
-            var files = new List<string>();
+            if (lines.Count == 1)
+                return;
 
-            using var streamReader = new StreamReader(fileName);
-            var partNumber = 0;
-            while (!streamReader.EndOfStream)
+            int i = 0;
+            while (lines[i].FileLine.CompareTo(lines[i + 1].FileLine) > 0)
             {
-                partNumber++;
-                var partFileName = partNumber + ".txt";
-                files.Add(partFileName);
-
-                using var streamWriter = new StreamWriter(partFileName);
-                for (int i = 0; i < partLinesCount; i++)
-                {
-                    if (streamReader.EndOfStream)
-                    {
-                        break;
-                    }
-
-                    streamWriter.WriteLine(streamReader.ReadLine());
-                }
+                var t = lines[i];
+                lines[i] = lines[i + 1];
+                lines[i + 1] = t;
+                i++;
+                if (i + 1 == lines.Count)
+                    return;
             }
-
-            return files;
         }
     }
 }

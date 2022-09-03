@@ -11,9 +11,8 @@ namespace FileSortApp
         private readonly Random random = new();
 
         private readonly string[] words;
-        private readonly string fileName;
 
-        public FileGenerator(string fileName)
+        public FileGenerator()
         {
             words = Enumerable.Range(0, 10000)
                 .Select(x =>
@@ -23,11 +22,9 @@ namespace FileSortApp
                     var str = new string(chars);
                     return str;
                 }).ToArray();
-
-            this.fileName = fileName;
         }
 
-        public void GenerateFile(int fileLength)
+        public void GenerateFile(int fileLength, string fileName)
         {
             using var streamWriter = new StreamWriter(fileName);
 
